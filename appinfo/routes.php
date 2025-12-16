@@ -15,6 +15,8 @@ return [
         // Admin API
         ['name' => 'api#getAllLeaves', 'url' => '/api/admin/leaves', 'verb' => 'GET'],
         ['name' => 'api#setLeaveStatus', 'url' => '/api/admin/leaves/{id}/status', 'verb' => 'POST'],
+        ['name' => 'api#deleteLeaveByAdmin', 'url' => '/api/admin/leaves/{id}', 'verb' => 'DELETE'],
+
         // Manager endpoints
         ['name' => 'api#listMyEmployees', 'url' => '/api/my/employees', 'verb' => 'GET'],
 

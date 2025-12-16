@@ -163,7 +163,25 @@
         tdActions.appendChild(approve);
         tdActions.appendChild(reject);
       } else {
-        tdActions.textContent = '—';
+        const reject = document.createElement('button');
+        reject.className = 'button icon-button danger reject';
+        reject.title = 'Supprimer';
+        reject.textContent = '✕';
+        reject.onclick = async () => {
+          OC.dialogs.confirm(
+              'Voulez-vous vraiment supprimer ce congé ?', 
+              'Confirmation de suppression',              
+              async function(result) {                    
+                  if (result) {
+                      const form = new FormData();
+                      form.append('status', 'rejected');
+                      await fetch(OC.generateUrl('/apps/talk_rh/api/admin/leaves/' + l.id), { method: 'DELETE', body: form });
+                      await loadAll();
+                  }
+              }
+          );
+        };
+        tdActions.appendChild(reject);
       }
       tr.appendChild(tdId);
       tr.appendChild(tdUser);
@@ -366,7 +384,32 @@
         };
         actions.appendChild(approve);
         actions.appendChild(reject);
+      }else{
+        const reject = document.createElement('button');
+        reject.className = 'danger';
+        reject.textContent = 'Supprimer';
+        reject.onclick = async () => {
+          OC.dialogs.confirm(
+              'Voulez-vous vraiment supprimer ce congé ?', 
+              'Confirmation de suppression',              
+              async function(result) {                    
+                  if (result) {
+                      try {
+                        await fetch(OC.generateUrl('/apps/talk_rh/api/admin/leaves/' + l.id), { method: 'DELETE'});
+                      } finally {
+                        try { if (window.talkrhLoader) window.talkrhLoader.hide(); } catch(_) {}
+                      }
+                      await loadAll();
+                      closeModal();
+                  }
+              }
+          );
+        };
+        actions.appendChild(reject);
       }
+
+
+
       card.appendChild(head);
       card.appendChild(meta);
       card.appendChild(badges);
@@ -485,7 +528,7 @@
   function renderCalendar() {
     const grid = document.getElementById('calendarGrid');
     const label = document.getElementById('monthLabel');
-    if (!grid || !label) return;
+    if (!grid || !label) return; 
     grid.innerHTML = '';
     label.textContent = monthNamesFr[currentMonth] + ' ' + currentYear;
 

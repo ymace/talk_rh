@@ -140,6 +140,16 @@ class ApiController extends Controller {
      * @NoAdminRequired
      * @NoCSRFRequired
      */
+    public function deleteLeaveByAdmin(int $id): JSONResponse {
+        $this->ensureAppAdmin();
+        $ok = $this->leaveService->deleteLeaveByAdmin($id);
+        return new JSONResponse(['success' => $ok]);
+    }
+
+    /**
+     * @NoAdminRequired
+     * @NoCSRFRequired
+     */
     public function getAllLeaves(): JSONResponse {
         $this->ensureAppAdmin();
         $user = $this->userSession->getUser();

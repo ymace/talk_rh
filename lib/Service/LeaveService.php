@@ -135,6 +135,112 @@ class LeaveService {
         return true;
     }
 
+    public function deleteLeaveByAdmin(int $id): bool {
+        $this->removeDeletedLeaveFromCalendar($id);
+        $qb = $this->db->getQueryBuilder();
+        $qb->delete('talk_rh_leaves')
+            ->where($qb->expr()->eq('id', $qb->createNamedParameter($id, IQueryBuilder::PARAM_INT)))
+            ->executeStatement();
+        $this->logger->debug('notifyChange: leave id=' . ($id) . 'deleted', ['app' => Application::APP_ID]);
+
+        return true;
+    }
+
+    private function removeDeletedLeaveFromCalendar(int $leaveId): void {
+        $leave = $this->getLeaveById($leaveId);
+        if ($leave === null) {
+            return;
+        }
+        
+        $uid = (string)($leave['uid'] ?? '');
+        $calendarObjectUri = (string)($leave['calendar_object_uri'] ?? '');
+        
+        if ($uid === '' || $calendarObjectUri === '') {
+            $this->logger->debug('[talk_rh] No calendar object to delete for leaveId=' . $leaveId, ['app' => Application::APP_ID]);
+            return;
+        }
+        
+        $this->logger->warning('[talk_rh] Attempting to delete calendar event for leaveId=' . $leaveId . ' uri=' . $calendarObjectUri, ['app' => Application::APP_ID]);
+        
+        // Extract the calendar name and file name from the URI
+        // Format: "personal/talk_rh-leave-123.ics" or just "talk_rh-leave-123.ics"
+        if (strpos($calendarObjectUri, '/') !== false) {
+            [$calendarId, $objectName] = explode('/', $calendarObjectUri, 2);
+        } else {
+            $calendarId = 'personal';
+            $objectName = $calendarObjectUri;
+        }
+        
+        $deleted = $this->deleteViaCalDavBackend($uid, $calendarId, $objectName, $leaveId);
+        
+        if (!$deleted) {
+            $this->logger->warning('[talk_rh] Calendar event deletion failed for leaveId=' . $leaveId, ['app' => Application::APP_ID]);
+        }
+    }
+
+    private function deleteViaCalDavBackend(string $uid, string $calendarId, string $objectName, int $leaveId): bool {
+        try {
+            // Trying to get the Nextcloud CalDAV backend
+            $caldavBackend = \OC::$server->get(\OCA\DAV\CalDAV\CalDavBackend::class);
+            
+            if ($caldavBackend === null) {
+                $this->logger->warning('[talk_rh] CalDavBackend not available', ['app' => Application::APP_ID]);
+                return false;
+            }
+            
+            // Find the user's calendar
+            $principalUri = 'principals/users/' . $uid;
+            $calendars = $caldavBackend->getCalendarsForUser($principalUri);
+            
+            $targetCalendarId = null;
+            foreach ($calendars as $calendar) {
+                $uri = $calendar['uri'] ?? '';
+                if (strcasecmp($uri, $calendarId) === 0) {
+                    $targetCalendarId = $calendar['id'];
+                    break;
+                }
+            }
+            
+            // If the specified calendar is not found, try the others.
+            if ($targetCalendarId === null) {
+                $candidates = ['personal', 'default', 'work', 'home'];
+                foreach ($calendars as $calendar) {
+                    $uri = $calendar['uri'] ?? '';
+                    if (in_array(strtolower($uri), $candidates, true)) {
+                        // Check if the item exists in this calendar
+                        $obj = $caldavBackend->getCalendarObject($calendar['id'], $objectName);
+                        if ($obj !== null) {
+                            $targetCalendarId = $calendar['id'];
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if ($targetCalendarId === null) {
+                $this->logger->warning('[talk_rh] Calendar not found for user=' . $uid . ' calendarId=' . $calendarId, ['app' => Application::APP_ID]);
+                return false;
+            }
+            
+            // Check if the item exist
+            $existingObject = $caldavBackend->getCalendarObject($targetCalendarId, $objectName);
+            if ($existingObject === null) {
+                $this->logger->debug('[talk_rh] Calendar object not found, may already be deleted: ' . $objectName, ['app' => Application::APP_ID]);
+                return true; //  Consider as successful if already deleted
+            }
+            
+            // Delete the object
+            $caldavBackend->deleteCalendarObject($targetCalendarId, $objectName);
+            
+            $this->logger->warning('[talk_rh] Calendar event deleted successfully for leaveId=' . $leaveId, ['app' => Application::APP_ID]);
+            return true;
+            
+        } catch (\Throwable $e) {
+            $this->logger->warning('[talk_rh] deleteViaCalDavBackend failed for leaveId=' . $leaveId . ': ' . $e->getMessage(), ['app' => Application::APP_ID]);
+            return false;
+        }
+    }
+
     /**
      * Create an all-day VEVENT in the user's default calendar when a leave is approved.
      * Stores the created object URI and component UID to the DB for future updates.
